@@ -1,20 +1,24 @@
 {
-  "name": "generic-pool",
-  "description": "Generic resource pooling for Node.JS",
-  "version": "2.0.4",
-  "author": "James Cooper <james@bitmechanic.com>",
+  "name": "e2e-generic-pool",
+  "description": "Generic resource pooling for Node.JS with e2e-transaction-logger support",
+  "version": "0.1.0",
+  "author": {
+    "name": "E2E Technologies Ltd",
+    "email": "support@e2ebridge.com"
+  },
   "contributors": [
+    { "name": "E2E Technologies Ltd", "email": "support@e2ebridge.com", "url": "http://e2ebridge.com"},
     { "name": "James Cooper", "email": "james@bitmechanic.com" },
     { "name": "Peter Galiba", "email": "poetro@poetro.hu", "url": "http://poetro.hu/" },
     { "name": "Gary Dusbabek" },
     { "name": "Tom MacWright", "url" : "http://www.developmentseed.org/" },
     { "name": "Douglas Christopher Wilson", "email": "doug@somethingdoug.com", "url" : "http://somethingdoug.com/" }
   ],
-  "keywords": ["pool", "pooling", "throttle"],
+  "keywords": ["pool", "pooling", "throttle", "e2e", "e2ebridge"],
   "main": "lib/generic-pool.js",
   "repository": {
     "type": "git",
-    "url": "http://github.com/coopernurse/node-pool.git"
+    "url": "https://github.com/e2ebridge/e2e-generic-pool.git"
   },
   "devDependencies": {
       "expresso": ">0.0.0"
