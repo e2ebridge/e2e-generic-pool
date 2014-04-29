@@ -1,96 +1,16 @@
-[![build status](https://secure.travis-ci.org/coopernurse/node-pool.png)](http://travis-ci.org/coopernurse/node-pool)
+[![E2E logo](README/e2ebridge-logo.png)](http://e2ebridge.com)
+
 
 # About
 
   Generic resource pool.  Can be used to reuse or throttle expensive resources such as
-  database connections.
+  database connections. The [e2e-transaction-logger](https://github.com/e2ebridge/e2e-transaction-logger) can be used as the transaction object is propagated from the pool calls to the resource factory.
   
-## 2.0 Release Warning
-
-The 2.0.0 release removed support for variable argument callbacks.  When you acquire
-a resource from the pool, your callback *must* accept two arguments: (err, obj)
-
-Previously this library attempted to determine the arity of the callback, but this resulted
-in a variety of issues.  This change eliminates these issues, and makes the acquire callback
-parameter order consistent with the factory.create callback.
 
 ## Installation
 
-    $ npm install generic-pool
+    $ npm install e2e-generic-pool
     
-## History
-
-    2.0.4 - July 27 2013
-       - Merged #64 - Fix for not removing idle objects (contributed by PiotrWpl)
-
-    2.0.3 - January 16 2013
-       - Merged #56/#57 - Add optional refreshIdle flag. If false, idle resources at the pool minimum will not be
-         destroyed/re-created. (contributed by wshaver)
-       - Merged #54 - Factory can be asked to validate pooled objects (contributed by tikonen)
-
-    2.0.2 - October 22 2012
-       - Fix #51, #48 - createResource() should check for null clientCb in err case (contributed by pooyasencha)
-       - Merged #52 - fix bug of infinite wait when create object aync error (contributed by windyrobin)
-       - Merged #53 - change the position of dispense and callback to ensure the time order (contributed by windyrobin)
-    
-    2.0.1 - August 29 2012
-       - Fix #44 - leak of 'err' and 'obj' in createResource()
-       - Add devDependencies block to package.json
-       - Add travis-ci.org integration
-       
-    2.0.0 - July 31 2012
-       - Non-backwards compatible change: remove adjustCallback
-          - acquire() callback must accept two params: (err, obj)
-       - Add optional 'min' param to factory object that specifies minimum number of
-         resources to keep in pool
-       - Merged #38 (package.json/Makefile changes - contributed by strk)
-
-    1.0.12 - June 27 2012
-       - Merged #37 (Clear remove idle timer after destroyAllNow - contributed by dougwilson)
-
-    1.0.11 - June 17 2012
-       - Merged #36 ("pooled" method to perform function decoration for pooled methods - contributed by cosbynator)
-
-    1.0.10 - May 3 2012
-       - Merged #35 (Remove client from availbleObjects on destroy(client) - contributed by blax)
-
-    1.0.9 - Dec 18 2011
-       - Merged #25 (add getName() - contributed by BryanDonovan)
-       - Merged #27 (remove sys import - contributed by botker)
-       - Merged #26 (log levels - contributed by JoeZ99)
-
-    1.0.8 - Nov 16 2011
-       - Merged #21 (add getter methods to see pool size, etc. - contributed by BryanDonovan)
-       
-    1.0.7 - Oct 17 2011
-       - Merged #19 (prevent release on the same obj twice - contributed by tkrynski)
-       - Merged #20 (acquire() returns boolean indicating whether pool is full - contributed by tilgovi)
-
-    1.0.6 - May 23 2011
-       - Merged #13 (support error variable in acquire callback - contributed by tmcw) 
-          - Note: This change is backwards compatible.  But new code should use the two
-                  parameter callback format in pool.create() functions from now on.
-       - Merged #15 (variable scope issue in dispense() - contributed by eevans)
-       
-    1.0.5 - Apr 20 2011
-       - Merged #12 (ability to drain pool - contributed by gdusbabek)
-       
-    1.0.4 - Jan 25 2011
-       - Fixed #6 (objects reaped with undefined timeouts)
-       - Fixed #7 (objectTimeout issue)
-
-    1.0.3 - Dec 9 2010
-       - Added priority queueing (thanks to sylvinus)
-       - Contributions from Poetro
-         - Name changes to match conventions described here: http://en.wikipedia.org/wiki/Object_pool_pattern
-            - borrow() renamed to acquire()
-            - returnToPool() renamed to release()
-         - destroy() removed from public interface
-         - added JsDoc comments
-         - Priority queueing enhancements
-       
-    1.0.2 - Nov 9 2010 
-       - First NPM release
 
 ## Example
 
@@ -102,26 +22,37 @@ parameter order consistent with the factory.create callback.
 var poolModule = require('generic-pool');
 var pool = poolModule.Pool({
     name     : 'mysql',
-    create   : function(callback) {
+    create   : function(callback, trx) {
+        var io;
         var Client = require('mysql').Client;
         var c = new Client();
         c.user     = 'scott';
         c.password = 'tiger';
         c.database = 'mydb';
-        c.connect();
-        
-        // parameter order: err, resource
-        // new in 1.0.6
-        callback(null, c);
+
+        if(trx){ io = trx.startIO('CONNECT', 'MYSQL', d.database); }	// use trx inside factory to log IOs
+        c.connect(function(err){
+            if(io){ io.end( (err) ? false : true); }
+
+            // parameter order: err, resource
+            callback(err, c);
+        });
+
     },
-    destroy  : function(client) { client.end(); },
+    destroy  : function(client, trx) {
+        var io;
+
+        if(trx){ io = trx.startIO('DISCONNECT', 'MYSQL', c.database); }
+        client.end();
+        if(io){ io.end(); }
+    },
     max      : 10,
     // optional. if you set this, make sure to drain() (see step 3)
-    min      : 2, 
+    min      : 2,
     // specifies how long a resource can stay idle in pool before being removed
     idleTimeoutMillis : 30000,
      // if true, logs via console.log - can also be a function
-    log : true 
+    log : true
 });
 ```
 
@@ -130,13 +61,16 @@ var pool = poolModule.Pool({
 ```js
 // acquire connection - callback function is called
 // once a resource becomes available
-pool.acquire(function(err, client) {
+pool.acquire(trx, function(err, client) {
     if (err) {
         // handle error - this is generally the err from your
-        // factory.create function  
+        // factory.create function
     }
     else {
-        client.query("select * from foo", [], function() {
+        if(trx){ io = trx.startIO('SELECT', 'MYSQL', client.database); }
+        client.query("select * from foo", [], function(err, data) {
+            if(io){ io.end( (err) ? false : true); }
+
             // return object back to pool
             pool.release(client);
         });
@@ -165,10 +99,10 @@ idle resources have timed out.  For example, you can call:
 // Only call this once in your application -- at the point you want
 // to shutdown and stop using this pool.
 pool.drain(function() {
-    pool.destroyAllNow();
+    pool.destroyAllNow(trx);
 });
 ```
-    
+
 If you do this, your node process will exit gracefully.
     
     
@@ -196,7 +130,7 @@ If you do this, your node process will exit gracefully.
                          see example.  (default 1)
               validate : function that accepts a pooled resource and returns true if the resource
                          is OK to use, or false if the object is invalid.  Invalid objects will be destroyed.
-                         This function is called in acquire() before returning a resource from the pool. 
+                         This function is called in acquire() before returning a resource from the pool.
                          Optional.  Default function always returns true.
                    log : true/false or function -
                            If a log is a function, it will be called with two parameters:
@@ -207,7 +141,7 @@ If you do this, your node process will exit gracefully.
 
 ## Priority Queueing
 
-The pool now supports optional priority queueing.  This becomes relevant when no resources 
+The pool now supports optional priority queueing.  This becomes relevant when no resources
 are available and the caller has to wait. `acquire()` accepts an optional priority int which 
 specifies the caller's relative position in the queue.
 
@@ -216,10 +150,10 @@ specifies the caller's relative position in the queue.
  // borrowers can specify a priority 0 to 2
  var pool = poolModule.Pool({
      name     : 'mysql',
-     create   : function(callback) {
+     create   : function(callback, trx) {
          // do something
      },
-     destroy  : function(client) { 
+     destroy  : function(client, trx) {
          // cleanup.  omitted for this example
      },
      max      : 10,
@@ -228,17 +162,17 @@ specifies the caller's relative position in the queue.
  });
 
  // acquire connection - no priority - will go at end of line
- pool.acquire(function(err, client) {
+ pool.acquire(trx, function(err, client) {
      pool.release(client);
  });
 
  // acquire connection - high priority - will go into front slot
- pool.acquire(function(err, client) {
+ pool.acquire(trx, function(err, client) {
      pool.release(client);
  }, 0);
 
  // acquire connection - medium priority - will go into middle slot
- pool.acquire(function(err, client) {
+ pool.acquire(trx, function(err, client) {
      pool.release(client);
  }, 1);
 
@@ -253,7 +187,7 @@ with `drain()`:
 
 ```js
 pool.drain(function() {
-    pool.destroyAllNow();
+    pool.destroyAllNow(trx);
 });
 ```
 
@@ -262,7 +196,7 @@ will throw an Error.
 
 ## Pooled function decoration
 
-To transparently handle object acquisition for a function, 
+To transparently handle object acquisition for a function,
 one can use `pooled()`:
 
 ```js
@@ -273,14 +207,14 @@ publicFn = pool.pooled(privateFn = function(client, arg, cb) {
 });
 ```
 
-Keeping both private and public versions of each function allows for pooled 
+Keeping both private and public versions of each function allows for pooled
 functions to call other pooled functions with the same member. This is a handy
 pattern for database transactions:
 
 ```js
 var privateTop, privateBottom, publicTop, publicBottom;
 publicBottom = pool.pooled(privateBottom = function(client, arg, cb) {
-    //Use client, assumed auto-release 
+    //Use client, assumed auto-release
 });
 
 publicTop = pool.pooled(privateTop = function(client, cb) {
@@ -317,11 +251,12 @@ pool.waitingClientsCount()
     $ npm install expresso
     $ expresso -I lib test/*.js
 
-## License 
+## License
 
 (The MIT License)
 
 Copyright (c) 2010-2013 James Cooper &lt;james@bitmechanic.com&gt;
+Copyright (c) 2014 E2E Technologies Ltd
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
